@@ -5,7 +5,9 @@ from flask import Flask, render_template, request, send_file
 import pandas as pd
 
 app = Flask(__name__)
-
+@app.route("/", methods=["GET"])
+def home():
+    return "OK", 200
 # Depo baza
 depo_db = {
     "yararsiz": {"counter": 1, "data": []},
