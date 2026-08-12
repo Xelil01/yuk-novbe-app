@@ -112,6 +112,26 @@ def download_excel(module_name):
       mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   )
 
+VERIFY_TOKEN = "my_secret_token"
+
+
+@app.route("/webhook", methods=["GET"])
+def verify_webhook():
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        return challenge, 200
+    return "Verification failed", 403
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.get_json()
+    print("Gələn mesaj:", data)
+    return "EVENT_RECEIVED", 200
+
 
 if __name__ == "__main__":
-  app.run(debug=True)
+    app.run(debug=True)
