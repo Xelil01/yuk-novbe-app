@@ -1,121 +1,12 @@
-
-import io
-from datetime import datetime
-from flask import Flask, render_template, request, send_file
-import pandas as pd
+import os
+import requests
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-@app.route("/", methods=["GET"])
-def home():
-    return "OK", 200
-# Depo baza
-depo_db = {
-    "yararsiz": {"counter": 1, "data": []},
-    "adsiz": {"counter": 1, "data": []},
-    "qaytarma": {"counter": 1, "data": []},
-    "grzone": {"counter": 1, "data": []},
-}
 
-prefix_map = {
-    "yararsiz": "YAR",
-    "adsiz": "ADS",
-    "qaytarma": "QAY",
-    "grzone": "GRZ",
-}
-
-# Nəqliyyat baza
-naqliyyat_db = []
-
-
-# Əsas Giriş Menyusu
-@app.route("/")
-def index():
-  return render_template("index.html")
-
-
-# Depo Paneli
-@app.route("/depo")
-def depo_panel():
-  return render_template(
-      "depo.html",
-      yararsiz_list=depo_db["yararsiz"]["data"],
-      adsiz_list=depo_db["adsiz"]["data"],
-      qaytarma_list=depo_db["qaytarma"]["data"],
-      grzone_list=depo_db["grzone"]["data"],
-  )
-
-
-@app.route("/depo/add/<section>", methods=["POST"])
-def add_depo_queue(section):
-  if section in depo_db:
-    details = request.form.get("details")
-    count = depo_db[section]["counter"]
-    code = f"{prefix_map[section]}-{count:03d}"
-
-    depo_db[section]["data"].append({
-        "Tarix": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "code": code,
-        "details": details,
-        "status": "İşlənilir",
-    })
-    depo_db[section]["counter"] += 1
-
-  return render_template(
-      "depo.html",
-      yararsiz_list=depo_db["yararsiz"]["data"],
-      adsiz_list=depo_db["adsiz"]["data"],
-      qaytarma_list=depo_db["qaytarma"]["data"],
-      grzone_list=depo_db["grzone"]["data"],
-  )
-
-
-# Excel Yükləmə
-@app.route("/download/excel/<module_name>")
-def download_excel(module_name):
-  today = datetime.now().strftime("%Y-%m-%d")
-
-  if module_name == "depo":
-    all_depo = (
-        depo_db["yararsiz"]["data"]
-        + depo_db["adsiz"]["data"]
-        + depo_db["qaytarma"]["data"]
-        + depo_db["grzone"]["data"]
-    )
-    df = pd.DataFrame(
-        all_depo
-        if all_depo
-        else [
-            {
-                "Tarix": "-",
-                "code": "-",
-                "details": "Məlumat yoxdur",
-                "status": "-",
-            }
-        ]
-    )
-    filename = f"Depo_Hesabat_{today}.xlsx"
-  else:
-    df = pd.DataFrame(
-        naqliyyat_db
-        if naqliyyat_db
-        else [{"Tarix": "-", "Növbə": "-", "Status": "Məlumat yoxdur"}]
-    )
-    filename = f"Naqliyyat_Hesabat_{today}.xlsx"
-
-  output = io.BytesIO()
-  with pd.ExcelWriter(output, engine="openpyxl") as writer:
-    df.to_excel(writer, index=False, sheet_name="Hesabat")
-  output.seek(0)
-
-  return send_file(
-      output,
-      download_name=filename,
-      as_attachment=True,
-      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  )
-
-VERIFY_TOKEN = "my_secret_token"
-
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_secret_token")
+WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 
 @app.route("/webhook", methods=["GET"])
 def verify_webhook():
@@ -125,15 +16,54 @@ def verify_webhook():
 
     if mode == "subscribe" and token == VERIFY_TOKEN:
         return challenge, 200
-    return "Verification failed", 403
-
+    return "Forbidden", 403
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
-    print("Gələn mesaj:", data)
-    return "EVENT_RECEIVED", 200
 
+    if data.get("object") == "whatsapp_business_account":
+        for entry in data.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+
+                if messages:
+                    msg = messages[0]
+                    from_number = msg.get("from")
+                    
+                    # Yalnız mətn mesajlarını emal edirik
+                    if msg.get("type") == "text":
+                        text_body = msg.get("text", {}).get("body", "").strip()
+
+                        # Avtomatik Cavab Məntiqi
+                        if text_body.lower() in ["salam", "salam!"]:
+                            reply_text = "Aleykum salam! Növbə sistemi üçün 'Növbə' sözünü yazın."
+                        elif text_body.lower() == "növbə":
+                            reply_text = "Növbəniz qeydə alındı! Sizin növbə nömrəniz: #12"
+                        else:
+                            reply_text = f"Mesajınız alındı: '{text_body}'. Növbə götürmək üçün 'Növbə' yazın."
+
+                        send_whatsapp_message(from_number, reply_text)
+
+        return jsonify({"status": "success"}), 200
+    return jsonify({"status": "not a whatsapp event"}), 404
+
+def send_whatsapp_message(to_number, text):
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "text",
+        "text": {"body": text}
+    }
+    
+    response = requests.post(url, json=payload, headers=headers)
+    print(f"Meta API Response: {response.status_code}, {response.text}")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000)
