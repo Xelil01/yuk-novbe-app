@@ -19,7 +19,7 @@ DB_PATH = os.environ.get("DB_PATH", "yuk_novbe.db")
 # Format: ölkə kodu + nömrə, "+" işarəsi OLMADAN (məs. "994501234567")
 STAFF = {
     "994XXXXXXXXX": "Cavid",
-    "994XXXXXXXXX": "Xəlil",
+    "994556631130": "Xəlil",
     "994XXXXXXXXX": "Azər",
 }
 
